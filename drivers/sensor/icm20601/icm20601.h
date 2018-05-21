@@ -181,6 +181,10 @@
 	#define ICM20601_DEFAULT_GYRO_FULLSCALE		3
 #endif
 
+struct icm20601_config {
+	char *dev_name;
+};
+
 struct icm20601_data {
     struct device *spi;
     s16_t accel_sample_x;
@@ -210,7 +214,7 @@ struct icm20601_data {
 #endif
 
 #endif /* CONFIG_ICM20601_TRIGGER */
-}
+};
 
 #define SYS_LOG_DOMAIN "ICM20601"
 #define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL

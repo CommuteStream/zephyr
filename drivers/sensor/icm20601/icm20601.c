@@ -551,7 +551,7 @@ int icm20601_set_z_accel_offset(struct icm20601 *device, int16_t z) {
 }
 */
 
-static struct icm20601_config = {
+static struct icm20601_config icm20601_config = {
 	.dev_name = CONFIG_ICM20601_SPI_MASTER_DEV_NAME,
 };
 
