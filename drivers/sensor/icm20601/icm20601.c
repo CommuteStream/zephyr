@@ -3,6 +3,10 @@
 #include <sensor.h>
 #include "icm20601.h"
 
+#define SENSOR_PI_DOUBLE			(SENSOR_PI / 1000000.0)
+#define SENSOR_DEG2RAD_DOUBLE			(SENSOR_PI_DOUBLE / 180)
+#define SENSOR_G_DOUBLE				(SENSOR_G / 1000000.0)
+
 #if defined(CONFIG_ICM20601_SPI_GPIO_CS)
 static struct spi_cs_control icm20601_cs_ctrl;
 #endif
@@ -153,24 +157,257 @@ static inline int icm20601_set_accel_standby_avg(struct device *dev, u8_t avg) {
 			dec2 << ICM20601_SHIFT_ACCEL_CONFIG_2_DEC2_CFG);
 }
 
-static inline int icm20601_set_accel_lpf(struct device *dev,
-		bool lpf_enable, u8_t lpf_mode) {
-	u8_t update = 0;
+static inline int icm20601_set_accel_filter_choice(struct device *dev,
+		u8_t fchoice)
+{
+	return icm20601_update_reg8(dev, ICM20601_REG_ACCEL_CONFIG_2,
+			ICM20601_MASK_ACCEL_CONFIG_2_ACCEL_FCHOICE_B,
+		fchoice << ICM20601_SHIFT_ACCEL_CONFIG_2_ACCEL_FCHOICE_B);
+}
+
+static inline int icm20601_set_accel_lpf(struct device *dev, u8_t lpf_mode) {
 	if(lpf_mode > 7) {
 		SYS_LOG_DBG("invalid accelerometer low pass filter mode, must be 0 to 7");
 		return -EINVAL;
 	}
-	if(lpf_enable) {
-		update = 1 << ICM20601_SHIFT_ACCEL_CONFIG_2_ACCEL_FCHOICE_B;
-	}
-	update |= lpf_mode << ICM20601_SHIFT_ACCEL_CONFIG_2_A_DLPF_CFG;
-	u8_t mask = ICM20601_MASK_ACCEL_CONFIG_2_A_DLPF_CFG
-		| ICM20601_MASK_ACCEL_CONFIG_2_ACCEL_FCHOICE_B;
-	return icm20601_update_reg8(dev, ICM20601_REG_ACCEL_CONFIG_2, mask, update);
+	return icm20601_update_reg8(dev, ICM20601_REG_ACCEL_CONFIG_2,
+			ICM20601_MASK_ACCEL_CONFIG_2_A_DLPF_CFG,
+			lpf_mode << ICM20601_SHIFT_ACCEL_CONFIG_2_A_DLPF_CFG);
 }
 
+static int icm20601_set_accel_fs_raw(struct device *dev, u8_t fs) {
+	u8_t update = 0;
+	if(fs > 3) {
+		SYS_LOG_DBG("invalid accelerometer full-scale must be 0 to 3");
+		return -EINVAL;
+	}
+	update |= fs << ICM20601_SHIFT_ACCEL_CONFIG_A_SCALE;
+	return icm20601_update_reg8(dev, ICM20601_REG_ACCEL_CONFIG,
+			ICM20601_MASK_ACCEL_CONFIG_A_SCALE, update);
+}
+
+static inline int icm20601_set_gyro_filter_choice(struct device *dev, u8_t fchoice) {
+	if(fchoice > 3) {
+		SYS_LOG_DBG("invalid gyro filter choice, must be 0 to 3");
+		return -EINVAL;
+	}
+	return icm20601_update_reg8(dev, ICM20601_REG_GYRO_CONFIG,
+			ICM20601_MASK_GYRO_CONFIG_FCHOICE_B,
+			fchoice << ICM20601_SHIFT_GYRO_CONFIG_FCHOICE_B);
+}
+
+static inline int icm20601_set_gyro_lpf(struct device *dev, u8_t lpf_mode) {
+	if(lpf_mode > 7) {
+		SYS_LOG_DBG("invalid gyro low pass filter mode, must be 0 to 7");
+		return -EINVAL;
+	}
+	return icm20601_update_reg8(dev, ICM20601_REG_CONFIG,
+			ICM20601_MASK_CONFIG_DLPF_CFG,
+			lpf_mode << ICM20601_SHIFT_CONFIG_DLPF_CFG);
+}
+
+static int icm20601_set_gyro_fs_raw(struct device *dev, u8_t fs) {
+	u8_t update = 0;
+	if(fs > 3) {
+		SYS_LOG_DBG("invalid gyro full-scale must be 0 to 3");
+		return -EINVAL;
+	}
+	update |= fs << ICM20601_SHIFT_GYRO_CONFIG_G_SCALE;
+	return icm20601_update_reg8(dev, ICM20601_REG_GYRO_CONFIG,
+			ICM20601_MASK_GYRO_CONFIG_G_SCALE, update);
+}
+
+static int icm20601_attr_set(struct device *dev, enum sensor_channel chan,
+			   enum sensor_attribute attr,
+			   const struct sensor_value *val)
+{
+	SYS_LOG_WRN("attr_set() not supported on this channel.");
+	return -ENOTSUP;
+}
+
+static int icm20601_sample_fetch_accel(struct device *dev)
+{
+	return 0;
+}
+
+static int icm20601_sample_fetch_gyro(struct device *dev)
+{
+	return 0;
+}
+
+
+static int icm20601_sample_fetch_temp(struct device *dev)
+{
+	struct icm20601_data *data = dev->driver_data;
+	u8_t temp_l;
+	u8_t temp_h;
+
+	if (icm20601_read_reg8(dev, ICM20601_REG_TEMP_OUT_L, &temp_l) < 0) {
+		SYS_LOG_DBG("failed to read temperature low");
+		return -EIO;
+	}
+
+	if (icm20601_read_reg8(dev, ICM20601_REG_TEMP_OUT_H, &temp_h) < 0) {
+		SYS_LOG_DBG("failed to read temperature high");
+		return -EIO;
+	}
+
+
+	data->temp_sample = (s16_t)((u16_t)(temp_l) |
+				((u16_t)(temp_h) << 8));
+
+	return 0;
+}
+
+
+static int icm20601_sample_fetch(struct device *dev, enum sensor_channel chan)
+{
+	switch (chan) {
+	case SENSOR_CHAN_ACCEL_XYZ:
+		icm20601_sample_fetch_accel(dev);
+		break;
+	case SENSOR_CHAN_GYRO_XYZ:
+		icm20601_sample_fetch_gyro(dev);
+		break;
+	case SENSOR_CHAN_DIE_TEMP:
+		icm20601_sample_fetch_temp(dev);
+		break;
+	case SENSOR_CHAN_ALL:
+		icm20601_sample_fetch_accel(dev);
+		icm20601_sample_fetch_gyro(dev);
+		icm20601_sample_fetch_temp(dev);
+		break;
+	default:
+		return -ENOTSUP;
+	}
+	return 0;
+}
+
+static inline void icm20601_gyro_convert(struct sensor_value *val, int raw_val)
+{
+	double dval;
+
+	/* Sensitivity is exposed in mdps/LSB */
+	/* Convert to rad/s */
+	dval = (double)(raw_val * SENSOR_DEG2RAD_DOUBLE) / 1000;
+	val->val1 = (s32_t)dval;
+	val->val2 = (((s32_t)(dval * 1000)) % 1000) * 1000;
+}
+
+static inline int icm20601_gyro_channel_get(enum sensor_channel chan,
+					   struct sensor_value *val,
+					   struct icm20601_data *data)
+{
+	switch (chan) {
+	case SENSOR_CHAN_GYRO_X:
+		icm20601_gyro_convert(val, data->gyro_sample_x);
+		break;
+	case SENSOR_CHAN_GYRO_Y:
+		icm20601_gyro_convert(val, data->gyro_sample_y);
+		break;
+	case SENSOR_CHAN_GYRO_Z:
+		icm20601_gyro_convert(val, data->gyro_sample_z);
+		break;
+	case SENSOR_CHAN_GYRO_XYZ:
+		icm20601_gyro_convert(&val[0], data->gyro_sample_x);
+		icm20601_gyro_convert(&val[1], data->gyro_sample_y);
+		icm20601_gyro_convert(&val[2], data->gyro_sample_z);
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+
+
+static void icm20601_gyro_channel_get_temp(struct sensor_value *val,
+					  struct icm20601_data *data)
+{
+	/* val = temp_sample / 256 + 25 */
+	val->val1 = data->temp_sample / 256 + 25;
+	val->val2 = (data->temp_sample % 256) * (1000000 / 256);
+}
+
+static inline void icm20601_accel_convert(struct sensor_value *val, int raw_val)
+{
+	double dval;
+
+	/* Sensitivity is exposed in mg/LSB */
+	/* Convert to m/s^2 */
+	dval = (double)(raw_val) / 1000;
+	val->val1 = (s32_t)dval;
+	val->val2 = (((s32_t)(dval * 1000)) % 1000) * 1000;
+
+}
+
+
+static inline int icm20601_accel_channel_get(enum sensor_channel chan,
+					    struct sensor_value *val,
+					    struct icm20601_data *data)
+{
+	switch (chan) {
+	case SENSOR_CHAN_ACCEL_X:
+		icm20601_accel_convert(val, data->accel_sample_x);
+		break;
+	case SENSOR_CHAN_ACCEL_Y:
+		icm20601_accel_convert(val, data->accel_sample_y);
+		break;
+	case SENSOR_CHAN_ACCEL_Z:
+		icm20601_accel_convert(val, data->accel_sample_z);
+		break;
+	case SENSOR_CHAN_ACCEL_XYZ:
+		icm20601_accel_convert(&val[0], data->accel_sample_x);
+		icm20601_accel_convert(&val[1], data->accel_sample_y);
+		icm20601_accel_convert(&val[2], data->accel_sample_z);
+		break;
+	default:
+		return -ENOTSUP;
+	}
+	return 0;
+}
+
+
+static int icm20601_channel_get(struct device *dev,
+			       enum sensor_channel chan,
+			       struct sensor_value *val)
+{
+	struct icm20601_data *data = dev->driver_data;
+
+	switch (chan) {
+	case SENSOR_CHAN_ACCEL_X:
+	case SENSOR_CHAN_ACCEL_Y:
+	case SENSOR_CHAN_ACCEL_Z:
+	case SENSOR_CHAN_ACCEL_XYZ:
+		icm20601_accel_channel_get(chan, val, data);
+		break;
+	case SENSOR_CHAN_GYRO_X:
+	case SENSOR_CHAN_GYRO_Y:
+	case SENSOR_CHAN_GYRO_Z:
+	case SENSOR_CHAN_GYRO_XYZ:
+		icm20601_gyro_channel_get(chan, val, data);
+		break;
+	case SENSOR_CHAN_DIE_TEMP:
+		icm20601_gyro_channel_get_temp(val, data);
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+
+
+static const struct sensor_driver_api icm20601_api_funcs = {
+	.attr_set = icm20601_attr_set,
+#if CONFIG_LSM6DSL_TRIGGER
+	.trigger_set = icm20601_trigger_set,
+#endif
+	.sample_fetch = icm20601_sample_fetch,
+	.channel_get = icm20601_channel_get,
+};
+
 static int icm20601_init_chip(struct device *dev) {
-	int err = 0;
 	u8_t chip_id;
 	
 	if(icm20601_reset(dev) < 0) {
@@ -194,17 +431,22 @@ static int icm20601_init_chip(struct device *dev) {
 	}
 
 	if(icm20601_set_sample_rate_div(dev, ICM20601_DEFAULT_SAMPLE_RATE_DIV) < 0) {
-		SYS_LOG_DB("failed to set sample rate divider");
+		SYS_LOG_DBG("failed to set sample rate divider");
 		return -EIO;
 	}
 
 	if(icm20601_set_accel_standby_avg(dev, ICM20601_DEFAULT_ACCEL_STANDBY_AVG) < 0) {
-		SYS_LOG_DB("failed to set accelerometer standby sample averaging");
+		SYS_LOG_DBG("failed to set accelerometer standby sample averaging");
 		return -EIO;
 	}
 
-	if(icm20601_set_accel_lpf(dev, ICM20601_DEFAULT_ACCEL_LPF_ENABLE, ICM20601_DEFAULT_ACCEL_LPF_CFG) < 0) {
-		SYS_LOG_DB("failed to set accelerometer low-pass filter settings");
+	if(icm20601_set_accel_filter_choice(dev, ICM20601_DEFAULT_ACCEL_LPF_ENABLE) < 0) {
+		SYS_LOG_DBG("failed to set accelerometer low-pass filter settings");
+		return -EIO;
+	}
+
+	if(icm20601_set_accel_lpf(dev, ICM20601_DEFAULT_ACCEL_LPF_CFG) < 0) {
+		SYS_LOG_DBG("failed to set accelerometer low-pass filter settings");
 		return -EIO;
 	}
 	
@@ -213,13 +455,13 @@ static int icm20601_init_chip(struct device *dev) {
 		return -EIO;
 	}
 
-	if(icm20601_set_gyro_standby_avg(dev, ICM20601_DEFAULT_GYRO_STANDBY_AVG) < 0) {
-		SYS_LOG_DB("failed to set accelerometer standby sample averaging");
+	if(icm20601_set_gyro_filter_choice(dev, ICM20601_DEFAULT_GYRO_LPF_CHOICE) < 0) {
+		SYS_LOG_DBG("failed to set gyroscope low-pass filter settings");
 		return -EIO;
 	}
 
-	if(icm20601_set_gyro_lpf(dev, ICM20601_DEFAULT_GYRO_LPF_ENABLE, ICM20601_DEFAULT_GYRO_LPF_CFG) < 0) {
-		SYS_LOG_DB("failed to set accelerometer low-pass filter settings");
+	if(icm20601_set_gyro_lpf(dev, ICM20601_DEFAULT_GYRO_LPF_CFG) < 0) {
+		SYS_LOG_DBG("failed to set gyroscope low-pass filter settings");
 		return -EIO;
 	}
 
@@ -309,6 +551,11 @@ int icm20601_set_z_accel_offset(struct icm20601 *device, int16_t z) {
 }
 */
 
+static struct icm20601_config = {
+	.dev_name = CONFIG_ICM20601_SPI_MASTER_DEV_NAME,
+};
+
+
 int icm20601_init(struct device *dev) {
 	const struct icm20601_config * const config = dev->config->config_info;
 	struct icm20601_data *data = dev->driver_data;
@@ -354,4 +601,4 @@ static struct icm20601_data icm20601_driver;
 
 DEVICE_AND_API_INIT(icm20601, CONFIG_ICM20601_NAME, icm20601_init,
         &icm20601_driver, NULL, POST_KERNEL,
-        CONFIG_SENSOR_INIT_PRIORITY, &icm20601_driver_api);
+        CONFIG_SENSOR_INIT_PRIORITY, &icm20601_api_funcs);
