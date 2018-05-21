@@ -15,9 +15,9 @@ menuconfig ICM20601
 	  Enable driver for ICM20601 accelerometer and gyroscope
 	  sensor.
 
-config ICM20601_DEV_NAME
+config ICM20601_NAME
 	string "ICM20601 device name"
-	depends on (ICM20601_I2C && !HAS_DTS_I2C_DEVICE) || ICM20601_SPI
+	depends on ICM20601
 	default "ICM20601"
 
 config ICM20601_SPI_SELECT_SLAVE
