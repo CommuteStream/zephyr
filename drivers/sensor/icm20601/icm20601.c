@@ -102,6 +102,16 @@ static inline int icm20601_read_reg8(struct device *dev, u8_t addr, u8_t *val) {
 	return icm20601_raw_read(data, addr, val, 1);
 }
 
+static inline int icm20601_read_s16(struct device *dev, u8_t addr_l, u8_t addr_h, s16_t *val) {
+	u8_t l, h = 0;
+	int err = icm20601_read_reg8(dev, addr_l, &l);
+	err |= icm20601_read_reg8(dev, addr_h, &h);
+	*val = (s16_t)((u16_t)(l) |
+				((u16_t)(h) << 8));
+	return err;
+}
+
+
 static inline int icm20601_update_reg8(struct device *dev, u8_t addr, u8_t mask,
 		u8_t val) {
 	struct icm20601_data *data = dev->driver_data;
@@ -227,11 +237,39 @@ static int icm20601_attr_set(struct device *dev, enum sensor_channel chan,
 
 static int icm20601_sample_fetch_accel(struct device *dev)
 {
+	struct icm20601_data *data = dev->driver_data;
+
+	if (icm20601_read_s16(dev, ICM20601_REG_ACCEL_XOUT_L, ICM20601_REG_ACCEL_XOUT_H, &data->accel_sample_x) < 0) {
+		SYS_LOG_DBG("failed to fetch accel x sample");
+		return -EIO;
+	}
+	if (icm20601_read_s16(dev, ICM20601_REG_ACCEL_YOUT_L, ICM20601_REG_ACCEL_YOUT_H, &data->accel_sample_y) < 0) {
+		SYS_LOG_DBG("failed to fetch accel y sample");
+		return -EIO;
+	}
+	if (icm20601_read_s16(dev, ICM20601_REG_ACCEL_ZOUT_L, ICM20601_REG_ACCEL_ZOUT_H, &data->accel_sample_z) < 0) {
+		SYS_LOG_DBG("failed to fetch accel z sample");
+		return -EIO;
+	}
 	return 0;
 }
 
 static int icm20601_sample_fetch_gyro(struct device *dev)
 {
+	struct icm20601_data *data = dev->driver_data;
+
+	if (icm20601_read_s16(dev, ICM20601_REG_GYRO_XOUT_L, ICM20601_REG_GYRO_XOUT_H, &data->gyro_sample_x) < 0) {
+		SYS_LOG_DBG("failed to fetch gyro x sample");
+		return -EIO;
+	}
+	if (icm20601_read_s16(dev, ICM20601_REG_GYRO_YOUT_L, ICM20601_REG_GYRO_YOUT_H, &data->gyro_sample_y) < 0) {
+		SYS_LOG_DBG("failed to fetch gyro y sample");
+		return -EIO;
+	}
+	if (icm20601_read_s16(dev, ICM20601_REG_GYRO_ZOUT_L, ICM20601_REG_GYRO_ZOUT_H, &data->gyro_sample_z) < 0) {
+		SYS_LOG_DBG("failed to fetch gyro z sample");
+		return -EIO;
+	}
 	return 0;
 }
 
@@ -239,23 +277,11 @@ static int icm20601_sample_fetch_gyro(struct device *dev)
 static int icm20601_sample_fetch_temp(struct device *dev)
 {
 	struct icm20601_data *data = dev->driver_data;
-	u8_t temp_l;
-	u8_t temp_h;
 
-	if (icm20601_read_reg8(dev, ICM20601_REG_TEMP_OUT_L, &temp_l) < 0) {
-		SYS_LOG_DBG("failed to read temperature low");
+	if (icm20601_read_s16(dev, ICM20601_REG_TEMP_OUT_L, ICM20601_REG_TEMP_OUT_H, &data->temp_sample) < 0) {
+		SYS_LOG_DBG("failed to fetch temperature");
 		return -EIO;
 	}
-
-	if (icm20601_read_reg8(dev, ICM20601_REG_TEMP_OUT_H, &temp_h) < 0) {
-		SYS_LOG_DBG("failed to read temperature high");
-		return -EIO;
-	}
-
-
-	data->temp_sample = (s16_t)((u16_t)(temp_l) |
-				((u16_t)(temp_h) << 8));
-
 	return 0;
 }
 
@@ -469,7 +495,8 @@ static int icm20601_init_chip(struct device *dev) {
 		SYS_LOG_DBG("failed to set gyroscope full-scale");
 		return -EIO;
 	}
-	
+
+	SYS_LOG_DBG("Successfully initialized ICM20601");
 	return 0;
 }
 
@@ -557,7 +584,7 @@ static struct icm20601_config icm20601_config = {
 
 
 int icm20601_init(struct device *dev) {
-	const struct icm20601_config * const config = dev->config->config_info;
+	const struct icm20601_config * const config = &icm20601_config;
 	struct icm20601_data *data = dev->driver_data;
 
 	data->spi = device_get_binding(config->dev_name);
