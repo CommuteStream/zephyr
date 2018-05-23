@@ -446,6 +446,8 @@ static int icm20601_init_chip(struct device *dev) {
 		return -EIO;
 	}
 
+	k_sleep(100);
+
 	if(icm20601_get_who_am_i(dev, &chip_id) < 0) {
 		SYS_LOG_DBG("failed reading chip id");
 		return -EIO;
