@@ -309,15 +309,10 @@ static int icm20601_sample_fetch(struct device *dev, enum sensor_channel chan)
 	return 0;
 }
 
-static inline void icm20601_gyro_convert(struct sensor_value *val, int raw_val)
+static inline void icm20601_gyro_convert(struct sensor_value *val, s16_t raw_val)
 {
-	double dval;
-
-	/* Sensitivity is exposed in mdps/LSB */
-	/* Convert to rad/s */
-	dval = (double)(raw_val * SENSOR_DEG2RAD_DOUBLE) / 1000;
-	val->val1 = (s32_t)dval;
-	val->val2 = (((s32_t)(dval * 1000)) % 1000) * 1000;
+	/* Degrees per second, without conversion */
+	val->val1 = raw_val;
 }
 
 static inline int icm20601_gyro_channel_get(enum sensor_channel chan,
@@ -355,15 +350,10 @@ static void icm20601_gyro_channel_get_temp(struct sensor_value *val,
 	val->val2 = (data->temp_sample % 256) * (1000000 / 256);
 }
 
-static inline void icm20601_accel_convert(struct sensor_value *val, int raw_val)
+static inline void icm20601_accel_convert(struct sensor_value *val, s16_t raw_val)
 {
-	double dval;
-
-	/* Sensitivity is exposed in mg/LSB */
-	/* Convert to m/s^2 */
-	dval = (double)(raw_val) / 1000;
-	val->val1 = (s32_t)dval;
-	val->val2 = (((s32_t)(dval * 1000)) % 1000) * 1000;
+	/* exposed as gravity in G's*/
+	val->val1 = raw_val;
 
 }
 
