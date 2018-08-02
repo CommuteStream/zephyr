@@ -1,0 +1,1 @@
+zephyr_sources_ifdef(CONFIG_ICM20649 icm20649.c)
