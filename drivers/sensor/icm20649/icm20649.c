@@ -519,9 +519,32 @@ static int icm20649_init_chip(struct device *dev) {
 		SYS_LOG_DBG("failed to set odr align");
 		return -EIO;
 	}
+	
+	SYS_LOG_DBG("Successfully initialized ICM20649");
+	return 0;
+}
 
-	#ifdef ICM20649_TRIGGER
-	if(icm20649_fifo_int_enable(dev) < 0) {
+#ifdef CONFIG_ICM20649_TRIGGER
+
+static inline int icm20649_fifo_watermark_int_enable(struct device *dev) {
+	return 0;
+}
+
+static inline int icm20649_fifo_enable_all(struct device *dev) {
+	return 0;
+}
+
+static inline int icm20649_fifo_reset(struct device *dev) {
+	return 0;
+}
+
+static inline int icm20649_fifo_count(struct device *dev, s16_t *count) {
+	*count = 0;
+	return 0;
+}
+
+static inline int icm20649_fifo_enable(struct device *dev) {
+	if(icm20649_fifo_watermark_int_enable(dev) < 0) {
 		SYS_LOG_DBG("failed to enable FIFO interrupts");
 		return -EIO;
 	}
@@ -533,11 +556,138 @@ static int icm20649_init_chip(struct device *dev) {
 		SYS_LOG_DBG("failed to reset FIFO");
 		return -EIO;
 	}
-	#endif
-
-	SYS_LOG_DBG("Successfully initialized ICM20649");
 	return 0;
 }
+
+int icm20649_trigger_set(struct device *dev,
+			const struct sensor_trigger *trig,
+			sensor_trigger_handler_t handler)
+{
+	struct icm20649_data *drv_data = dev->driver_data;
+
+	__ASSERT_NO_MSG(trig->type == SENSOR_TRIG_DATA_READY);
+
+	gpio_pin_disable_callback(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM);
+
+	drv_data->data_ready_handler = handler;
+	if (handler == NULL) {
+		return 0;
+	}
+
+	drv_data->data_ready_trigger = *trig;
+
+	gpio_pin_enable_callback(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM);
+
+	return 0;
+}
+
+static void icm20649_gpio_callback(struct device *dev,
+				  struct gpio_callback *cb, u32_t pins)
+{
+	struct icm20649_data *drv_data =
+		CONTAINER_OF(cb, struct icm20649_data, gpio_cb);
+
+	ARG_UNUSED(pins);
+
+	gpio_pin_disable_callback(dev, CONFIG_ICM20649_GPIO_PIN_NUM);
+
+#if defined(CONFIG_ICM20649_TRIGGER_OWN_THREAD)
+	k_sem_give(&drv_data->gpio_sem);
+#elif defined(CONFIG_ICM20649_TRIGGER_GLOBAL_THREAD)
+	k_work_submit(&drv_data->work);
+#endif
+}
+
+static void icm20649_thread_cb(void *arg)
+{
+	struct device *dev = arg;
+	struct icm20649_data *drv_data = dev->driver_data;
+
+	if (drv_data->data_ready_handler != NULL) {
+		drv_data->data_ready_handler(dev,
+					     &drv_data->data_ready_trigger);
+	}
+
+	gpio_pin_enable_callback(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM);
+}
+
+#ifdef CONFIG_ICM20649_TRIGGER_OWN_THREAD
+static void icm20649_thread(int dev_ptr, int unused)
+{
+	struct device *dev = INT_TO_POINTER(dev_ptr);
+	struct icm20649_data *drv_data = dev->driver_data;
+
+	ARG_UNUSED(unused);
+
+	while (1) {
+		k_sem_take(&drv_data->gpio_sem, K_FOREVER);
+		icm20649_thread_cb(dev);
+	}
+}
+#endif
+
+#ifdef CONFIG_ICM20649_TRIGGER_GLOBAL_THREAD
+static void icm20649_work_cb(struct k_work *work)
+{
+	struct icm20649_data *drv_data =
+		CONTAINER_OF(work, struct icm20649_data, work);
+
+	icm20649_thread_cb(drv_data->dev);
+}
+#endif
+
+int icm20649_init_interrupt(struct device *dev)
+{
+	struct icm20649_data *drv_data = dev->driver_data;
+
+	/* setup data ready gpio interrupt */
+	drv_data->gpio = device_get_binding(CONFIG_ICM20649_GPIO_DEV_NAME);
+	if (drv_data->gpio == NULL) {
+		SYS_LOG_ERR("Cannot get pointer to %s device.",
+			    CONFIG_ICM20649_GPIO_DEV_NAME);
+		return -EINVAL;
+	}
+
+	gpio_pin_configure(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM,
+			   GPIO_DIR_IN | GPIO_INT | GPIO_INT_EDGE |
+			   GPIO_INT_ACTIVE_HIGH | GPIO_INT_DEBOUNCE);
+
+	gpio_init_callback(&drv_data->gpio_cb,
+			   icm20649_gpio_callback,
+			   BIT(CONFIG_ICM20649_GPIO_PIN_NUM));
+
+	if (gpio_add_callback(drv_data->gpio, &drv_data->gpio_cb) < 0) {
+		SYS_LOG_ERR("Could not set gpio callback.");
+		return -EIO;
+	}
+
+	/* enable fifo and watermark interrupt */
+	if(icm20649_fifo_enable(dev) < 0) {
+		SYS_LOG_ERR("Could not enable fifo watermark interrupt.");
+		return -EIO;
+	}
+
+#if defined(CONFIG_ICM20649_TRIGGER_OWN_THREAD)
+	k_sem_init(&drv_data->gpio_sem, 0, UINT_MAX);
+
+	k_thread_create(&drv_data->thread, drv_data->thread_stack,
+			CONFIG_ICM20649_THREAD_STACK_SIZE,
+			(k_thread_entry_t)icm20649_thread, POINTER_TO_INT(dev),
+			0, NULL, K_PRIO_COOP(CONFIG_ICM20649_THREAD_PRIORITY),
+			0, 0);
+#elif defined(CONFIG_ICM20649_TRIGGER_GLOBAL_THREAD)
+	drv_data->work.handler = icm20649_work_cb;
+	drv_data->dev = dev;
+#endif
+
+	gpio_pin_enable_callback(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM);
+
+	return 0;
+}
+
+#endif /* ICM20649_TRIGGER */
+
+
 
 /*
 int icm20649_get_x_accel(struct icm20649 *device, int16_t *x) {
@@ -616,6 +766,7 @@ int icm20649_set_z_accel_offset(struct icm20649 *device, int16_t z) {
     return icm20649_write_i16(device, ZA_OFFSET_H, ZA_OFFSET_L, z);
 }
 */
+
 
 static struct icm20649_config icm20649_config = {
 	.dev_name = CONFIG_ICM20649_SPI_MASTER_DEV_NAME,

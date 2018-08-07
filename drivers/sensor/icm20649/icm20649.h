@@ -8,8 +8,10 @@
 #ifndef __SENSOR_ICM20649_H__
 #define __SENSOR_ICM20649_H__
 
+#include <sensor.h>
 #include <zephyr/types.h>
-#include <device.h>
+#include <gpio.h>
+#include <misc/util.h>
 
 /* Common Register Bank Select Register */
 #define ICM20649_REG_BANK_SEL							0x7F
@@ -337,7 +339,7 @@
 	#define ICM20649_DEFAULT_ACCEL_FULLSCALE		1
 #elif CONFIG_ICM20649_ACCEL_FS == 16 
 	#define ICM20649_DEFAULT_ACCEL_FULLSCALE		2
-#elif CONFIG_ICM20649_ACCEL_FS == 32
+#elif CONFIG_ICM20649_ACCEL_FS == 30
 	#define ICM20649_DEFAULT_ACCEL_FULLSCALE		3
 #endif
 
@@ -394,6 +396,14 @@ struct icm20649_data {
 
 #endif /* CONFIG_ICM20649_TRIGGER */
 };
+
+#ifdef CONFIG_ICM20649_TRIGGER
+int icm20649_trigger_set(struct device *dev,
+			const struct sensor_trigger *trig,
+			sensor_trigger_handler_t handler);
+
+int icm20649_init_interrupt(struct device *dev);
+#endif
 
 #define SYS_LOG_DOMAIN "ICM20649"
 #define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
