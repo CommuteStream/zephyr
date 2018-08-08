@@ -111,6 +111,14 @@ static inline int icm20649_read_s16(struct device *dev, u8_t addr_l, u8_t addr_h
 	return err;
 }
 
+static inline int icm20649_read_u16(struct device *dev, u8_t addr_l, u8_t addr_h, u16_t *val) {
+	u8_t l, h = 0;
+	int err = icm20649_read_reg8(dev, addr_l, &l);
+	err |= icm20649_read_reg8(dev, addr_h, &h);
+	*val = ((u16_t)(l) |
+				((u16_t)(h) << 8));
+	return err;
+}
 
 static inline int icm20649_update_reg8(struct device *dev, u8_t addr, u8_t mask,
 		u8_t val) {
@@ -146,6 +154,25 @@ static inline int icm20649_sleep(struct device *dev) {
 
 static inline int icm20649_get_who_am_i(struct device *dev, u8_t *whoami) {
 	return icm20649_read_reg8(dev, ICM20649_REG_WHO_AM_I, whoami);
+}
+
+static inline int icm20649_lp_disable(struct device *dev) {
+	return icm20649_update_reg8(dev, ICM20649_REG_LP_CONFIG,
+            ICM20649_MASK_LP_CONFIG_ACCEL_CYCLE | 
+            ICM20649_MASK_LP_CONFIG_GYRO_CYCLE,
+            0 << ICM20649_SHIFT_LP_CONFIG_ACCEL_CYCLE |
+            0 << ICM20649_SHIFT_LP_CONFIG_GYRO_CYCLE
+            );
+}
+
+static inline int icm20649_accel_gyro_enable(struct device *dev) {
+    return icm20649_update_reg8(dev, ICM20649_REG_PWR_MGMT_2,
+            ICM20649_MASK_PWR_MGMT_2_DISABLE_ACCEL | 
+            ICM20649_MASK_PWR_MGMT_2_DISABLE_GYRO,
+            0 << ICM20649_SHIFT_PWR_MGMT_2_DISABLE_ACCEL |
+            0 << ICM20649_SHIFT_PWR_MGMT_2_DISABLE_GYRO
+            );
+
 }
 
 /*
@@ -466,6 +493,16 @@ static int icm20649_init_chip(struct device *dev) {
 		return -EIO;
 	}
 
+    if(icm20649_lp_disable(dev) < 0) {
+        SYS_LOG_DBG("failed to turn off low power mode for analog circuitry");
+        return -EIO;
+    }
+
+    if(icm20649_accel_gyro_enable(dev) < 0 ) {
+        SYS_LOG_DBG("failed to enable accelerometer and gyroscope");
+        return -EIO;
+    }
+
 	/*
 	if(icm20649_set_accel_sample_rate_div(dev, ICM20649_DEFAULT_ACCEL_SAMPLE_RATE_DIV) < 0) {
 		SYS_LOG_DBG("failed to set accelerometer sample rate divider");
@@ -527,27 +564,53 @@ static int icm20649_init_chip(struct device *dev) {
 #ifdef CONFIG_ICM20649_TRIGGER
 
 static inline int icm20649_fifo_watermark_int_enable(struct device *dev) {
-	return 0;
+	return icm20649_update_reg8(dev, ICM20649_REG_INT_ENABLE_3,
+			ICM20649_MASK_INT_ENABLE_3_FIFO_WM_EN,
+			1 << ICM20649_SHIFT_INT_ENABLE_3_FIFO_WM_EN);
+}
+
+static inline int icm20649_fifo_overflow_int_enable(struct device *dev) {
+	return icm20649_update_reg8(dev, ICM20649_REG_INT_ENABLE_2,
+			ICM20649_MASK_INT_ENABLE_2_FIFO_OVERFLOW_EN,
+			1 << ICM20649_SHIFT_INT_ENABLE_2_FIFO_OVERFLOW_EN);
+}
+
+static inline int icm20649_fifo_watermark_int_status(struct device *dev, u8_t *status) {
+	return icm20649_read_reg8(dev, ICM20649_REG_INT_STATUS_3, status);
 }
 
 static inline int icm20649_fifo_enable_all(struct device *dev) {
-	return 0;
+	return icm20649_update_reg8(dev, ICM20649_REG_FIFO_EN_2,
+			0x1F,
+			0x1F);
 }
 
 static inline int icm20649_fifo_reset(struct device *dev) {
-	return 0;
+	int ret = icm20649_update_reg8(dev, ICM20649_REG_FIFO_RST,
+			ICM20649_MASK_FIFO_RST,
+			1 << ICM20649_SHIFT_FIFO_RST);
+    ret |= icm20649_update_reg8(dev, ICM20649_REG_FIFO_RST,
+			ICM20649_MASK_FIFO_RST,
+			0 << ICM20649_SHIFT_FIFO_RST);
+    return ret;
 }
 
-static inline int icm20649_fifo_count(struct device *dev, s16_t *count) {
-	*count = 0;
-	return 0;
+static inline int icm20649_fifo_count(struct device *dev, u16_t *count) {
+    return icm20649_read_u16(dev, ICM20649_REG_FIFO_COUNTL,
+            ICM20649_REG_FIFO_COUNTH,
+            count);
 }
 
 static inline int icm20649_fifo_enable(struct device *dev) {
 	if(icm20649_fifo_watermark_int_enable(dev) < 0) {
-		SYS_LOG_DBG("failed to enable FIFO interrupts");
+		SYS_LOG_DBG("failed to enable FIFO watermark interrupt");
 		return -EIO;
 	}
+	if(icm20649_fifo_overflow_int_enable(dev) < 0) {
+		SYS_LOG_DBG("failed to enable FIFO overflow interrupt");
+		return -EIO;
+	}
+
 	if(icm20649_fifo_enable_all(dev) < 0) {
 		SYS_LOG_DBG("failed to enable FIFO");
 		return -EIO;
@@ -563,6 +626,7 @@ int icm20649_trigger_set(struct device *dev,
 			const struct sensor_trigger *trig,
 			sensor_trigger_handler_t handler)
 {
+    SYS_LOG_DBG("Setting trigger");
 	struct icm20649_data *drv_data = dev->driver_data;
 
 	__ASSERT_NO_MSG(trig->type == SENSOR_TRIG_DATA_READY);
@@ -603,6 +667,9 @@ static void icm20649_thread_cb(void *arg)
 	struct device *dev = arg;
 	struct icm20649_data *drv_data = dev->driver_data;
 
+    SYS_LOG_DBG("Interrupt triggered");
+    // read data from fifo as an array of s16_t's up to 512bytes worth
+    // pass data to callback given at setup time
 	if (drv_data->data_ready_handler != NULL) {
 		drv_data->data_ready_handler(dev,
 					     &drv_data->data_ready_trigger);
@@ -638,6 +705,7 @@ static void icm20649_work_cb(struct k_work *work)
 
 int icm20649_init_interrupt(struct device *dev)
 {
+    SYS_LOG_DBG("Enabling interrupt");
 	struct icm20649_data *drv_data = dev->driver_data;
 
 	/* setup data ready gpio interrupt */
@@ -809,6 +877,13 @@ int icm20649_init(struct device *dev) {
 		SYS_LOG_DBG("failed to initialize chip");
 		return -EIO;
 	}
+
+#ifdef CONFIG_ICM20649_TRIGGER
+    if(icm20649_init_interrupt(dev) < 0 ) {
+        SYS_LOG_DBG("failed to initialize chip");
+		return -EIO;
+    }
+#endif
 
 	return 0;
 }
