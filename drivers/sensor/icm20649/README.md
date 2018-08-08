@@ -1,5 +1,4 @@
-# ICM 20601 Driver
+# ICM 20649 Driver
 
-Uses SPI to communicate with ICM 20601, SPI must provide several functions
-otherwise this works without needing to know the details of microcontroller
-or computer its running on.
+Uses SPI to communicate with ICM 20649 and sets up FIFO transfers with interrupts
+for fast transfers and lower power usage.
