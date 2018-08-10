@@ -23,6 +23,7 @@ static struct spi_config icm20649_spi_conf = {
 
 
 
+
 static int icm20649_raw_read(struct icm20649_data *data, u8_t reg_addr, u8_t *value, u8_t len) {
 	struct spi_config *spi_cfg = &icm20649_spi_conf;
 	u8_t buffer_tx[2] = { reg_addr | ICM20649_SPI_READ, 0 };
@@ -50,7 +51,7 @@ static int icm20649_raw_read(struct icm20649_data *data, u8_t reg_addr, u8_t *va
 	};
 
 
-	if (len > 64) {
+	if (len > 512) {
 		return -EIO;
 	}
 
@@ -111,10 +112,10 @@ static inline int icm20649_read_s16(struct device *dev, u8_t addr_l, u8_t addr_h
 	return err;
 }
 
-static inline int icm20649_read_u16(struct device *dev, u8_t addr_l, u8_t addr_h, u16_t *val) {
+static inline int icm20649_read_u16(struct device *dev, u8_t addr_h, u8_t addr_l, u16_t *val) {
 	u8_t l, h = 0;
-	int err = icm20649_read_reg8(dev, addr_l, &l);
-	err |= icm20649_read_reg8(dev, addr_h, &h);
+	int err = icm20649_read_reg8(dev, addr_h, &h);
+	err |= icm20649_read_reg8(dev, addr_l, &l);
 	*val = ((u16_t)(l) |
 				((u16_t)(h) << 8));
 	return err;
@@ -126,30 +127,69 @@ static inline int icm20649_update_reg8(struct device *dev, u8_t addr, u8_t mask,
 
 	u8_t tmp_val;
 	
-	icm20649_raw_read(data, addr, &tmp_val, 1);
+	int ret = icm20649_raw_read(data, addr, &tmp_val, 1);
 	tmp_val = (tmp_val & ~mask) | (val & mask);
 
-	return icm20649_raw_write(data, addr, &tmp_val, 1);
+	ret |= icm20649_raw_write(data, addr, &tmp_val, 1);
+
+#ifdef CONFIG_ICM20649_VERIFY_WRITE
+	u8_t new_val;
+	ret |= icm20649_raw_read(data, addr, &new_val, 1);
+	if(new_val != tmp_val) {
+		SYS_LOG_DBG("failed to verify write for addr %x expected %x got %x", addr, tmp_val, new_val);
+	}
+#endif
+	return ret;
+}
+
+static inline int icm20649_set_user_bank(struct device *dev, u8_t bank) {
+	return icm20649_write_reg8(dev, ICM20649_REG_BANK_SEL,
+			bank << ICM20649_SHIFT_BANK_SEL & ICM20649_MASK_BANK_SEL);
 }
 
 static inline int icm20649_reset(struct device *dev) {
-	return icm20649_write_reg8(dev, ICM20649_REG_PWR_MGMT_1, 
-			(1 << ICM20649_SHIFT_PWR_MGMT_1_DEVICE_RESET) & ICM20649_MASK_PWR_MGMT_1_DEVICE_RESET);
+	SYS_LOG_DBG("reset");
+	int ret = icm20649_update_reg8(dev, ICM20649_REG_PWR_MGMT_1, 
+			ICM20649_MASK_PWR_MGMT_1_DEVICE_RESET,
+			(1 << ICM20649_SHIFT_PWR_MGMT_1_DEVICE_RESET));
+	SYS_LOG_DBG("reset done");
+	return ret;
 }
 
 static inline int icm20649_auto_clock(struct device *dev) {
-	return icm20649_write_reg8(dev, ICM20649_REG_PWR_MGMT_1, 
-			(1 << ICM20649_SHIFT_PWR_MGMT_1_CLKSEL) & ICM20649_MASK_PWR_MGMT_1_CLKSEL);
+	SYS_LOG_DBG("auto clock");
+	int ret = icm20649_update_reg8(dev, ICM20649_REG_PWR_MGMT_1, 
+			ICM20649_MASK_PWR_MGMT_1_CLKSEL,
+			(1 << ICM20649_SHIFT_PWR_MGMT_1_CLKSEL));
+	SYS_LOG_DBG("auto clock done");
+	return ret;
 }
 
 static inline int icm20649_wakeup(struct device *dev) {
-	return icm20649_write_reg8(dev, ICM20649_REG_PWR_MGMT_1, 
-			(0 << ICM20649_SHIFT_PWR_MGMT_1_SLEEP) & ICM20649_MASK_PWR_MGMT_1_SLEEP);
+	SYS_LOG_DBG("wakeup");
+	int ret = icm20649_update_reg8(dev, ICM20649_REG_PWR_MGMT_1,
+			ICM20649_MASK_PWR_MGMT_1_SLEEP,
+			0 << ICM20649_SHIFT_PWR_MGMT_1_SLEEP);
+	SYS_LOG_DBG("wakeup done");
+	return ret;
+}
+
+static inline int icm20649_user_config(struct device *dev) {
+	return icm20649_update_reg8(dev, ICM20649_REG_USER_CTRL,
+			ICM20649_MASK_USER_CTRL_DMP_EN |
+			ICM20649_MASK_USER_CTRL_FIFO_EN |
+			ICM20649_MASK_USER_CTRL_I2C_IF_DIS |
+			ICM20649_MASK_USER_CTRL_SRAM_RST,
+			0 << ICM20649_SHIFT_USER_CTRL_DMP_EN |
+			1 << ICM20649_SHIFT_USER_CTRL_FIFO_EN |
+			1 << ICM20649_SHIFT_USER_CTRL_I2C_IF_DIS |
+			1 << ICM20649_SHIFT_USER_CTRL_SRAM_RST);
 }
 
 static inline int icm20649_sleep(struct device *dev) {
-	return icm20649_write_reg8(dev, ICM20649_REG_PWR_MGMT_1, 
-			(1 << ICM20649_SHIFT_PWR_MGMT_1_SLEEP) & ICM20649_MASK_PWR_MGMT_1_SLEEP);
+	return icm20649_update_reg8(dev, ICM20649_REG_PWR_MGMT_1, 
+			ICM20649_MASK_PWR_MGMT_1_SLEEP,
+			(1 << ICM20649_SHIFT_PWR_MGMT_1_SLEEP));
 }
 
 static inline int icm20649_get_who_am_i(struct device *dev, u8_t *whoami) {
@@ -471,8 +511,18 @@ static const struct sensor_driver_api icm20649_api_funcs = {
 static int icm20649_init_chip(struct device *dev) {
 	u8_t chip_id;
 
+	if(icm20649_set_user_bank(dev, 0) < 0) {
+		SYS_LOG_DBG("failed to set user bank to 0");
+		return -EIO;
+	}
+
 	if(icm20649_get_who_am_i(dev, &chip_id) < 0) {
 		SYS_LOG_DBG("failed reading chip id");
+		return -EIO;
+	}
+
+	if(chip_id != ICM20649_VAL_WHO_AM_I) {
+		SYS_LOG_DBG("invalid chip id 0x%x", chip_id);
 		return -EIO;
 	}
 	
@@ -481,17 +531,24 @@ static int icm20649_init_chip(struct device *dev) {
 		return -EIO;
 	}
 
+	k_sleep(K_MSEC(10));
+
+	if(icm20649_auto_clock(dev) < 0) {
+		SYS_LOG_DBG("failed to auto clock");
+		return -EIO;
+	}
+
 	if(icm20649_wakeup(dev) < 0) {
 		SYS_LOG_DBG("failed to power on device");
 		return -EIO;
 	}
 
-	k_sleep(100);
-
-	if(chip_id != ICM20649_VAL_WHO_AM_I) {
-		SYS_LOG_DBG("invalid chip id 0x%x", chip_id);
+	if(icm20649_user_config(dev) < 0) {
+		SYS_LOG_DBG("failed to config device for usage");
 		return -EIO;
 	}
+
+	k_sleep(K_MSEC(10));
 
     if(icm20649_lp_disable(dev) < 0) {
         SYS_LOG_DBG("failed to turn off low power mode for analog circuitry");
@@ -502,6 +559,13 @@ static int icm20649_init_chip(struct device *dev) {
         SYS_LOG_DBG("failed to enable accelerometer and gyroscope");
         return -EIO;
     }
+
+	k_sleep(K_MSEC(10));
+
+	if(icm20649_set_user_bank(dev, 2) < 0) {
+		SYS_LOG_DBG("failed to set user bank to 2");
+		return -EIO;
+	}
 
 	/*
 	if(icm20649_set_accel_sample_rate_div(dev, ICM20649_DEFAULT_ACCEL_SAMPLE_RATE_DIV) < 0) {
@@ -552,16 +616,34 @@ static int icm20649_init_chip(struct device *dev) {
 		return -EIO;
 	}
 
+	if(icm20649_set_user_bank(dev, 0) < 0) {
+		SYS_LOG_DBG("failed to set user bank to 2");
+		return -EIO;
+	}
+
+	/*
 	if(icm20649_set_odr_align(dev, 1) < 0) {
 		SYS_LOG_DBG("failed to set odr align");
 		return -EIO;
 	}
+	*/
 	
 	SYS_LOG_DBG("Successfully initialized ICM20649");
 	return 0;
 }
 
 #ifdef CONFIG_ICM20649_TRIGGER
+
+static inline int icm20649_int_pin_init(struct device *dev) {
+	return icm20649_update_reg8(dev, ICM20649_REG_INT_PIN_CFG,
+			ICM20649_MASK_INT_PIN_CFG_INT1_ACTL |
+			ICM20649_MASK_INT_PIN_CFG_INT1_OPEN |
+			ICM20649_MASK_INT_PIN_CFG_INT1_LATCH_EN,
+			0 << ICM20649_SHIFT_INT_PIN_CFG_INT1_ACTL |
+			0 << ICM20649_SHIFT_INT_PIN_CFG_INT1_OPEN | 
+			0 << ICM20649_SHIFT_INT_PIN_CFG_INT1_LATCH_EN
+			);
+}
 
 static inline int icm20649_fifo_watermark_int_enable(struct device *dev) {
 	return icm20649_update_reg8(dev, ICM20649_REG_INT_ENABLE_3,
@@ -575,20 +657,39 @@ static inline int icm20649_fifo_overflow_int_enable(struct device *dev) {
 			1 << ICM20649_SHIFT_INT_ENABLE_2_FIFO_OVERFLOW_EN);
 }
 
+static inline int icm20649_raw_data_ready_int_disable(struct device *dev) {
+	return icm20649_update_reg8(dev, ICM20649_REG_INT_ENABLE_1,
+			ICM20649_MASK_INT_ENABLE_1_RAW_DATA_0_RDY_EN,
+			0 <<  ICM20649_SHIFT_INT_ENABLE_1_RAW_DATA_0_RDY_EN);
+}
+
 static inline int icm20649_fifo_watermark_int_status(struct device *dev, u8_t *status) {
 	return icm20649_read_reg8(dev, ICM20649_REG_INT_STATUS_3, status);
+}
+
+static inline int icm20649_fifo_watermark_int_clear(struct device *dev) {
+	return icm20649_write_reg8(dev, ICM20649_REG_INT_STATUS_3, 0);
+}
+
+static inline int icm20649_fifo_overflow_int_status(struct device *dev, u8_t *status) {
+	return icm20649_read_reg8(dev, ICM20649_REG_INT_STATUS_2, status);
+}
+
+static inline int icm20649_fifo_overflow_int_clear(struct device *dev) {
+	return icm20649_write_reg8(dev, ICM20649_REG_INT_STATUS_2, 0);
 }
 
 static inline int icm20649_fifo_enable_all(struct device *dev) {
 	return icm20649_update_reg8(dev, ICM20649_REG_FIFO_EN_2,
 			0x1F,
-			0x1F);
+			0x1E);
 }
 
 static inline int icm20649_fifo_reset(struct device *dev) {
 	int ret = icm20649_update_reg8(dev, ICM20649_REG_FIFO_RST,
 			ICM20649_MASK_FIFO_RST,
 			1 << ICM20649_SHIFT_FIFO_RST);
+	k_sleep(K_MSEC(5));
     ret |= icm20649_update_reg8(dev, ICM20649_REG_FIFO_RST,
 			ICM20649_MASK_FIFO_RST,
 			0 << ICM20649_SHIFT_FIFO_RST);
@@ -596,12 +697,20 @@ static inline int icm20649_fifo_reset(struct device *dev) {
 }
 
 static inline int icm20649_fifo_count(struct device *dev, u16_t *count) {
-    return icm20649_read_u16(dev, ICM20649_REG_FIFO_COUNTL,
-            ICM20649_REG_FIFO_COUNTH,
+    return icm20649_read_u16(dev, ICM20649_REG_FIFO_COUNTH,
+			ICM20649_REG_FIFO_COUNTL,
             count);
 }
 
 static inline int icm20649_fifo_enable(struct device *dev) {
+	if(icm20649_int_pin_init(dev) < 0) {
+		SYS_LOG_DBG("failed to configure interrupt pin");
+		return -EIO;
+	}
+	if(icm20649_raw_data_ready_int_disable(dev) < 0) {
+		SYS_LOG_DBG("failed to disable raw data interrupt");
+		return -EIO;
+	}
 	if(icm20649_fifo_watermark_int_enable(dev) < 0) {
 		SYS_LOG_DBG("failed to enable FIFO watermark interrupt");
 		return -EIO;
@@ -610,7 +719,6 @@ static inline int icm20649_fifo_enable(struct device *dev) {
 		SYS_LOG_DBG("failed to enable FIFO overflow interrupt");
 		return -EIO;
 	}
-
 	if(icm20649_fifo_enable_all(dev) < 0) {
 		SYS_LOG_DBG("failed to enable FIFO");
 		return -EIO;
@@ -642,6 +750,7 @@ int icm20649_trigger_set(struct device *dev,
 
 	gpio_pin_enable_callback(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM);
 
+
 	return 0;
 }
 
@@ -668,13 +777,30 @@ static void icm20649_thread_cb(void *arg)
 	struct icm20649_data *drv_data = dev->driver_data;
 
     SYS_LOG_DBG("Interrupt triggered");
-    // read data from fifo as an array of s16_t's up to 512bytes worth
+	u8_t wm_status = 0;
+	u8_t of_status = 0;
+	if(icm20649_fifo_watermark_int_status(dev, &wm_status) < 0) {
+		SYS_LOG_DBG("failed to read watermark interrupt status");
+	} else if (wm_status != 0) {
+		SYS_LOG_DBG("fifo watermark interrupt");
+	} else {
+		if(icm20649_fifo_overflow_int_status(dev, &of_status) < 0) {
+			SYS_LOG_DBG("failed to read overflow interrupt status");
+		} else if (of_status != 0) {
+			SYS_LOG_DBG("fifo overflow interrupt");
+		} else {
+			SYS_LOG_DBG("unknown interrupt!");
+		}
+	}
+
+	// read data from fifo as an array of s16_t's up to 512bytes worth
     // pass data to callback given at setup time
 	if (drv_data->data_ready_handler != NULL) {
 		drv_data->data_ready_handler(dev,
 					     &drv_data->data_ready_trigger);
 	}
-
+	icm20649_fifo_watermark_int_clear(dev);
+	icm20649_fifo_overflow_int_clear(dev);
 	gpio_pin_enable_callback(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM);
 }
 
@@ -729,12 +855,6 @@ int icm20649_init_interrupt(struct device *dev)
 		return -EIO;
 	}
 
-	/* enable fifo and watermark interrupt */
-	if(icm20649_fifo_enable(dev) < 0) {
-		SYS_LOG_ERR("Could not enable fifo watermark interrupt.");
-		return -EIO;
-	}
-
 #if defined(CONFIG_ICM20649_TRIGGER_OWN_THREAD)
 	k_sem_init(&drv_data->gpio_sem, 0, UINT_MAX);
 
@@ -750,12 +870,33 @@ int icm20649_init_interrupt(struct device *dev)
 
 	gpio_pin_enable_callback(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM);
 
+	/* enable fifo and watermark interrupt */
+	if(icm20649_fifo_enable(dev) < 0) {
+		SYS_LOG_ERR("Could not enable fifo watermark interrupt.");
+		return -EIO;
+	}
+
 	return 0;
 }
 
 #endif /* ICM20649_TRIGGER */
 
-
+u16_t icm20649_fifo_read(struct device *dev, s16_t *buf, u16_t len) {
+	struct icm20649_data *data = dev->driver_data;
+	u16_t fifo_count = 0;
+	if(icm20649_fifo_count(dev, &fifo_count) < 0) {
+		SYS_LOG_DBG("failed to read fifo count while reading fifo");
+		return 0;
+	}
+	u16_t read_len = min(fifo_count, len*2);
+	for(u16_t i = 0; i < read_len; i += 64) {
+		if(icm20649_raw_read(data, ICM20649_REG_FIFO_R_W, &((u8_t*)buf)[i], min(64, read_len-i)) < 0) {
+			SYS_LOG_DBG("failed to read fifo");
+			return 0;
+		}
+	}
+	return read_len/2;
+}
 
 /*
 int icm20649_get_x_accel(struct icm20649 *device, int16_t *x) {
