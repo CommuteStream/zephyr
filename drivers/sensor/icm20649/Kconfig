@@ -43,6 +43,13 @@ config ICM20649_SPI_MASTER_DEV_NAME
 	  Specify the device name of the spi master device to which ICM20649 is
 	  connected.
 
+config ICM20649_VERIFY_WRITE
+	bool "ICM20649 Verify register writes read back the same value"
+	default n
+	depends on ICM20649
+	help
+	  This option is meant to be used to debug register setup.
+
 config ICM20649_SPI_GPIO_CS
 	bool "ICM20649 SPI CS through a GPIO pin"
 	default n
