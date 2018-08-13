@@ -187,6 +187,9 @@
 #define ICM20649_SHIFT_FIFO_MODE						0
 #define ICM20649_MASK_FIFO_MODE							(BIT(4) | BIT(3) | BIT(2) | BIT(1) | BIT(0))
 
+#define ICM20649_FIFO_MODE_STREAM						0
+#define ICM20649_FIFO_MODE_SNAPSHOT						1
+
 #define ICM20649_REG_FIFO_COUNTH 						0x70
 #define ICM20649_SHIFT_FIFO_COUNTH						0
 #define ICM20649_MASK_FIFO_COUNTH 						(BIT(4) | BIT(3) | BIT(2) | BIT(1) | BIT(0))
@@ -194,6 +197,8 @@
 #define ICM20649_REG_FIFO_COUNTL 						0x71
 #define ICM20649_SHIFT_FIFO_COUNTL						0
 #define ICM20649_MASK_FIFO_COUNTL 						0xFF
+
+#define ICM20649_FIFO_SIZE ((4096*7)/8)
 
 #define ICM20649_REG_FIFO_R_W 							0x72
 #define ICM20649_SHIFT_FIFO_R_W							0
@@ -405,7 +410,11 @@ int icm20649_trigger_set(struct device *dev,
 int icm20649_init_interrupt(struct device *dev);
 #endif
 
-u16_t icm20649_fifo_read(struct device *dev, s16_t *buf, u16_t len);
+int icm20649_fifo_count(struct device *dev, u16_t *cnt);
+u16_t icm20649_fifo_read(struct device *dev, u8_t *buf, u16_t len);
+int icm20649_fifo_overflow_int_status(struct device *dev, u8_t *reg);
+int icm20649_fifo_watermark_int_status(struct device *dev, u8_t *reg);
+
 
 #define SYS_LOG_DOMAIN "ICM20649"
 #define SYS_LOG_LEVEL CONFIG_SYS_LOG_SENSOR_LEVEL
