@@ -841,6 +841,8 @@ int icm20649_trigger_set(struct device *dev,
 			const struct sensor_trigger *trig,
 			sensor_trigger_handler_t handler)
 {
+	struct icm20649_data *drv_data = dev->driver_data;
+
 	if(handler == NULL) {
 		SYS_LOG_DBG("Clearing trigger");
 
@@ -854,8 +856,7 @@ int icm20649_trigger_set(struct device *dev,
 
 	} else {
 		SYS_LOG_DBG("Setting trigger");
-		struct icm20649_data *drv_data = dev->driver_data;
-
+		
 		__ASSERT_NO_MSG(trig->type == SENSOR_TRIG_DATA_READY);
 
 		gpio_pin_disable_callback(drv_data->gpio, CONFIG_ICM20649_GPIO_PIN_NUM);
@@ -871,8 +872,9 @@ int icm20649_trigger_set(struct device *dev,
 			return -EIO;
 		}
 
-		return 0;
 	}
+
+	return 0;
 }
 
 static void icm20649_gpio_callback(struct device *dev,
