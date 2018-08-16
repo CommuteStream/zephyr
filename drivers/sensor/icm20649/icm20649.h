@@ -333,7 +333,7 @@
 
 #define ICM20649_DEFAULT_ACCEL_DECIMATOR 0
 #define ICM20649_DEFAULT_ACCEL_LPF_ENABLE 1
-#define ICM20649_DEFAULT_ACCEL_LPF_CFG 0
+#define ICM20649_DEFAULT_ACCEL_LPF_CFG 7
 
 #if CONFIG_ICM20649_ACCEL_FS == 0
 	#define ICM20649_ACCEL_FS_RUNTIME 1
@@ -356,7 +356,7 @@
 
 #define ICM20649_DEFAULT_GYRO_DECIMATOR 0
 #define ICM20649_DEFAULT_GYRO_LPF_ENABLE 1
-#define ICM20649_DEFAULT_GYRO_LPF_CFG 0
+#define ICM20649_DEFAULT_GYRO_LPF_CFG 7
 
 #if CONFIG_ICM20649_GYRO_FS == 0
 	#define ICM20649_GYRO_FS_RUNTIME 1
@@ -416,10 +416,18 @@ int icm20649_trigger_set(struct device *dev,
 int icm20649_init_interrupt(struct device *dev);
 #endif
 
-int icm20649_fifo_count(struct device *dev, u16_t *cnt);
-u16_t icm20649_fifo_read(struct device *dev, u8_t *buf, u16_t len);
+int icm20649_get_who_am_i(struct device *dev, u8_t *whoami);
+typedef (void*)icm20649_fifo_stream_cb(s16_t *samples);
+int icm20649_fifo_stream(struct device *dev, icm20649_fifo_stream_cb stream_cb);
 int icm20649_fifo_overflow_int_status(struct device *dev, u8_t *reg);
 int icm20649_fifo_watermark_int_status(struct device *dev, u8_t *reg);
+
+enum icm20649_int_state {
+	ICM20649_WOM_INT,
+	ICM20649_FIFO_INT
+}
+
+int icm20649_set_state(struct device *dev);
 
 
 #define SYS_LOG_DOMAIN "ICM20649"
