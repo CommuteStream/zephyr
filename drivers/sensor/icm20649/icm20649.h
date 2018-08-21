@@ -377,6 +377,8 @@ struct icm20649_config {
 	char *dev_name;
 };
 
+typedef void(*icm20649_fifo_stream_cb)(s16_t *samples);
+
 struct icm20649_data {
     struct device *spi;
     s16_t accel_sample_x;
@@ -405,6 +407,16 @@ struct icm20649_data {
 	struct device *dev;
 #endif
 
+#if defined(CONFIG_ICM20649_FIFO_STREAM)
+	struct k_work fifo_work;
+	struct icm20694_fifo_stream_cb fifo_stream_cb;
+	u8_t fifo_watermark_status;
+	u8_t fifo_overflow_status;
+	int fifo_err;
+	u32_t fifo_read;
+	u32_t fifo_count;
+#endif
+
 #endif /* CONFIG_ICM20649_TRIGGER */
 };
 
@@ -416,20 +428,17 @@ int icm20649_trigger_set(struct device *dev,
 int icm20649_init_interrupt(struct device *dev);
 #endif
 
-int icm20649_get_who_am_i(struct device *dev, u8_t *whoami);
-typedef void(*icm20649_fifo_stream_cb)(s16_t *samples);
-void icm20649_fifo_stream(struct device *dev, icm20649_fifo_stream_cb stream_cb);
-int icm20649_fifo_count(struct device *dev, u16_t *cnt);
-u16_t icm20649_fifo_read(struct device *dev, u8_t *buf, u16_t len);
-int icm20649_fifo_overflow_int_status(struct device *dev, u8_t *reg);
-int icm20649_fifo_watermark_int_status(struct device *dev, u8_t *reg);
+#if defined(CONFIG_ICM20649_FIFO_STREAM)
+int icm20649_fifo_set_stream_cb(struct device *dev, icm20649_fifo_stream_cb stream_cb);
+#endif
 
-enum icm20649_int_state {
+enum icm20649_state {
+	ICM20649_SLEEP,
 	ICM20649_WOM_INT,
 	ICM20649_FIFO_INT
 };
 
-//int icm20649_set_state(struct device *dev);
+int icm20649_set_state(struct device *dev, enum icm20649_state state);
 
 
 #define SYS_LOG_DOMAIN "ICM20649"
