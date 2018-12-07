@@ -21,7 +21,7 @@ int lis3mdl_trigger_set(struct device *dev,
 
 	__ASSERT_NO_MSG(trig->type == SENSOR_TRIG_DATA_READY);
 
-	gpio_pin_disable_callback(drv_data->gpio, CONFIG_LIS3MDL_GPIO_PIN_NUM);
+	gpio_pin_disable_callback(drv_data->gpio, CONFIG_LIS3MDL_GPIO_INT_PIN_NUM);
 
 	drv_data->data_ready_handler = handler;
 	if (handler == NULL) {
@@ -30,7 +30,7 @@ int lis3mdl_trigger_set(struct device *dev,
 
 	drv_data->data_ready_trigger = *trig;
 
-	gpio_pin_enable_callback(drv_data->gpio, CONFIG_LIS3MDL_GPIO_PIN_NUM);
+	gpio_pin_enable_callback(drv_data->gpio, CONFIG_LIS3MDL_GPIO_INT_PIN_NUM);
 
 	return 0;
 }
@@ -43,7 +43,9 @@ static void lis3mdl_gpio_callback(struct device *dev,
 
 	ARG_UNUSED(pins);
 
-	gpio_pin_disable_callback(dev, CONFIG_LIS3MDL_GPIO_PIN_NUM);
+	gpio_pin_disable_callback(dev, CONFIG_LIS3MDL_GPIO_INT_PIN_NUM);
+
+  SYS_LOG_DBG("lis3mdl triggered");
 
 #if defined(CONFIG_LIS3MDL_TRIGGER_OWN_THREAD)
 	k_sem_give(&drv_data->gpio_sem);
@@ -62,7 +64,7 @@ static void lis3mdl_thread_cb(void *arg)
 					     &drv_data->data_ready_trigger);
 	}
 
-	gpio_pin_enable_callback(drv_data->gpio, CONFIG_LIS3MDL_GPIO_PIN_NUM);
+	gpio_pin_enable_callback(drv_data->gpio, CONFIG_LIS3MDL_GPIO_INT_PIN_NUM);
 }
 
 #ifdef CONFIG_LIS3MDL_TRIGGER_OWN_THREAD
@@ -102,13 +104,13 @@ int lis3mdl_init_interrupt(struct device *dev)
 		return -EINVAL;
 	}
 
-	gpio_pin_configure(drv_data->gpio, CONFIG_LIS3MDL_GPIO_PIN_NUM,
+	gpio_pin_configure(drv_data->gpio, CONFIG_LIS3MDL_GPIO_INT_PIN_NUM,
 			   GPIO_DIR_IN | GPIO_INT | GPIO_INT_EDGE |
 			   GPIO_INT_ACTIVE_HIGH | GPIO_INT_DEBOUNCE);
 
 	gpio_init_callback(&drv_data->gpio_cb,
 			   lis3mdl_gpio_callback,
-			   BIT(CONFIG_LIS3MDL_GPIO_PIN_NUM));
+			   BIT(CONFIG_LIS3MDL_GPIO_INT_PIN_NUM));
 
 	if (gpio_add_callback(drv_data->gpio, &drv_data->gpio_cb) < 0) {
 		SYS_LOG_DBG("Could not set gpio callback.");
@@ -128,6 +130,8 @@ int lis3mdl_init_interrupt(struct device *dev)
 		return -EIO;
 	}
 
+  SYS_LOG_DBG("lis3mdl trigger setup complete");
+
 #if defined(CONFIG_LIS3MDL_TRIGGER_OWN_THREAD)
 	k_sem_init(&drv_data->gpio_sem, 0, UINT_MAX);
 
@@ -141,7 +145,7 @@ int lis3mdl_init_interrupt(struct device *dev)
 	drv_data->dev = dev;
 #endif
 
-	gpio_pin_enable_callback(drv_data->gpio, CONFIG_LIS3MDL_GPIO_PIN_NUM);
+	gpio_pin_enable_callback(drv_data->gpio, CONFIG_LIS3MDL_GPIO_INT_PIN_NUM);
 
 	return 0;
 }

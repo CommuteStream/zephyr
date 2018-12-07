@@ -105,7 +105,31 @@ int lis3mdl_init(struct device *dev)
 	u8_t chip_cfg[6];
 	u8_t id, idx;
 
-	drv_data->i2c = device_get_binding(CONFIG_LIS3MDL_I2C_MASTER_DEV_NAME);
+	struct device *gpio_dev = device_get_binding(CONFIG_LIS3MDL_GPIO_DEV_NAME);
+  int res = 0;
+  res = gpio_pin_configure(gpio_dev, CONFIG_LIS3MDL_GPIO_CS_PIN_NUM, GPIO_DIR_OUT);
+  if(res != 0) {
+    SYS_LOG_ERR("Could not configure CS pin, %d cause res %d", CONFIG_LIS3MDL_GPIO_CS_PIN_NUM, res);
+    return -EINVAL;
+  }
+  res = gpio_pin_write(gpio_dev, CONFIG_LIS3MDL_GPIO_CS_PIN_NUM, 1);
+  if(res != 0) {
+    SYS_LOG_ERR("Could not write CS pin, %d cause res %d", CONFIG_LIS3MDL_GPIO_CS_PIN_NUM, res);
+    return -EINVAL;
+  }
+  res = gpio_pin_configure(gpio_dev, CONFIG_LIS3MDL_GPIO_SA1_PIN_NUM, GPIO_DIR_IN | GPIO_PUD_PULL_UP);
+  if(res != 0) {
+    SYS_LOG_ERR("Could not configure SA1 pin, %d cause res %d", CONFIG_LIS3MDL_GPIO_SA1_PIN_NUM, res);
+    return -EINVAL;
+  }
+
+  gpio_pin_write(gpio_dev, CONFIG_LIS3MDL_GPIO_SA1_PIN_NUM, 0);
+  if(res != 0) {
+    SYS_LOG_ERR("Could not write SA1 pin, %d cause res %d", CONFIG_LIS3MDL_GPIO_SA1_PIN_NUM, res);
+    return -EINVAL;
+  }
+
+  drv_data->i2c = device_get_binding(CONFIG_LIS3MDL_I2C_MASTER_DEV_NAME);
 
 	if (drv_data->i2c == NULL) {
 		SYS_LOG_ERR("Could not get pointer to %s device.",
