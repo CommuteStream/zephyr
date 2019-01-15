@@ -72,13 +72,19 @@
 
 #define BT_SMP_AUTH_MASK	0x07
 
+#if defined(CONFIG_BT_BONDABLE)
+#define BT_SMP_AUTH_BONDING_FLAGS BT_SMP_AUTH_BONDING
+#else
+#define BT_SMP_AUTH_BONDING_FLAGS 0
+#endif /* CONFIG_BT_BONDABLE */
+
 #if defined(CONFIG_BT_BREDR)
 #define BT_SMP_AUTH_MASK_SC	0x2f
-#define BT_SMP_AUTH_DEFAULT (BT_SMP_AUTH_BONDING | BT_SMP_AUTH_SC |\
+#define BT_SMP_AUTH_DEFAULT (BT_SMP_AUTH_BONDING_FLAGS | BT_SMP_AUTH_SC |\
 			     BT_SMP_AUTH_CT2)
 #else
 #define BT_SMP_AUTH_MASK_SC	0x0f
-#define BT_SMP_AUTH_DEFAULT (BT_SMP_AUTH_BONDING | BT_SMP_AUTH_SC)
+#define BT_SMP_AUTH_DEFAULT (BT_SMP_AUTH_BONDING_FLAGS | BT_SMP_AUTH_SC)
 #endif
 
 enum pairing_method {
@@ -243,6 +249,7 @@ static struct bt_smp_br bt_smp_br_pool[CONFIG_BT_MAX_CONN];
 #endif /* CONFIG_BT_BREDR */
 
 static struct bt_smp bt_smp_pool[CONFIG_BT_MAX_CONN];
+static bool bondable = IS_ENABLED(CONFIG_BT_BONDABLE);
 static bool sc_supported;
 static bool sc_local_pkey_valid;
 static u8_t sc_public_key[64];
@@ -2261,6 +2268,11 @@ static int smp_init(struct bt_smp *smp)
 	return 0;
 }
 
+void bt_set_bondable(bool enable)
+{
+	bondable = enable;
+}
+
 static u8_t get_auth(u8_t auth)
 {
 	if (sc_supported) {
@@ -2273,6 +2285,12 @@ static u8_t get_auth(u8_t auth)
 		auth &= ~(BT_SMP_AUTH_MITM);
 	} else {
 		auth |= BT_SMP_AUTH_MITM;
+	}
+
+	if (bondable) {
+		auth |= BT_SMP_AUTH_BONDING;
+	} else {
+		auth &= ~BT_SMP_AUTH_BONDING;
 	}
 
 	return auth;
@@ -4460,15 +4478,20 @@ void bt_smp_update_keys(struct bt_conn *conn)
 	 * exclusive with legacy pairing. Other keys are added on keys
 	 * distribution.
 	 */
-	if (atomic_test_bit(smp->flags, SMP_FLAG_SC) &&
-	    atomic_test_bit(smp->flags, SMP_FLAG_BOND)) {
-		bt_keys_add_type(conn->le.keys, BT_KEYS_LTK_P256);
-		memcpy(conn->le.keys->ltk.val, smp->tk,
-		       sizeof(conn->le.keys->ltk.val));
-		memset(conn->le.keys->ltk.rand, 0,
-		       sizeof(conn->le.keys->ltk.rand));
-		memset(conn->le.keys->ltk.ediv, 0,
-		       sizeof(conn->le.keys->ltk.ediv));
+	if (atomic_test_bit(smp->flags, SMP_FLAG_SC)) {
+		conn->le.keys->flags |= BT_KEYS_SC;
+
+		if (atomic_test_bit(smp->flags, SMP_FLAG_BOND)) {
+			bt_keys_add_type(conn->le.keys, BT_KEYS_LTK_P256);
+			memcpy(conn->le.keys->ltk.val, smp->tk,
+			       sizeof(conn->le.keys->ltk.val));
+			(void)memset(conn->le.keys->ltk.rand, 0,
+				     sizeof(conn->le.keys->ltk.rand));
+			(void)memset(conn->le.keys->ltk.ediv, 0,
+				     sizeof(conn->le.keys->ltk.ediv));
+		}
+	} else {
+		conn->le.keys->flags &= ~BT_KEYS_SC;
 	}
 }
 
