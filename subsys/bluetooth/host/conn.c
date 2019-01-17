@@ -1234,8 +1234,8 @@ static bool send_frag(struct bt_conn *conn, struct net_buf *buf, u8_t flags,
 	sys_snode_t *node;
 	int err;
 
-	BT_DBG("conn %p buf %p len %u flags 0x%02x", conn, buf, buf->len,
-	       flags);
+	BT_DBG("conn %p buf %p len %u flags 0x%02x always_consume %d", conn, buf, buf->len,
+	       flags, always_consume);
 
 	/* Wait until the controller can accept ACL packets */
 	k_sem_take(bt_conn_get_pkts(conn), K_FOREVER);
